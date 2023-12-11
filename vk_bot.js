@@ -1,11 +1,14 @@
 const { HearManager } = require("@vk-io/hear");
 const { pgPool, selectQuery, insertQuery, updateQuery, ConfirmationStatus } = require("./utils/db_utils");
+const { VkUtils } = require("./utils/vk_utils");
 
 class VkBot {
     #vk;
 
     constructor(vk, telegram) {
         const hearManager = new HearManager();
+
+        VkUtils.flattenFwdMessages([]);
 
         hearManager.hear(new RegExp("/set_tg_id.*"), async (ctx) => {
             /* Проверяем, что команда вызвана с правильными аргументами */
