@@ -113,22 +113,16 @@ const VkBot = (vk, telegram) => {
     }
 
     const uploadVideo = async (ctx, video, extra) => {
-        /* Пробуем переслать видео в TG */
-        return ctx.send(JSON.stringify(video));
-        /*
-        const url = await vk.api.video.get({
-            videos: video.toString(),
-        });
+        console.log(video);
+        const response = await fetch(video.player);
 
-        const text = wall
-            ? `Video from wall: ${video.items[0].player}`
-            : `Video: ${video.items[0].player}`;
-        await telegram.sendMessage(ctx.tgId, text, Extra.notifications(false));*/
+        /* Пробуем переслать видео в TG */
+        return ctx.send(response.text());
     }
 
     const uploadAudio = async (ctx, audio, extra) => {
         /* Пробуем переслать аудио в TG */
-        return telegram.sendAudio(ctx.tgId, audio.url, { performer: audio.artist, title: audio.title })
+        return telegram.sendAudio(ctx.tgId, audio.url, extra)
             .catch((error) => tgSendErrorHandler(ctx, error));
     }
 

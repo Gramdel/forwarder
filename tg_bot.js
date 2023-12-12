@@ -1,5 +1,6 @@
 const { pgPool, selectQuery, insertQuery, updateQuery, ConfirmationStatus } = require("./utils/db_utils");
 
+const noLinks = { dont_parse_links: true };
 const noPreview = { disable_web_page_preview: true };
 const MAX_DOWNLOAD_SIZE = 20_000_000;
 
@@ -157,6 +158,11 @@ const TgBot = (telegraf, vk) => {
             document.file_name += ".audio";
         }
 
+        /* Устанавливаем имя для кружка */
+        if (ctx.message.video_note) {
+            document.file_name += document.file_unique_id + ".mp4";
+        }
+
         /* Загружаем файл и вызываем следующий обработчик */
         ctx.attachment = await vk.upload.messageDocument({
             source: {
@@ -172,6 +178,12 @@ const TgBot = (telegraf, vk) => {
     const forwardMessage = async (ctx) => {
         /* Пробуем переслать сообщение в VK */
         const attachment = ctx.attachment;
+        await vk.api.messages.send({
+            user_id: ctx.vkId,
+            random_id: 0,
+            message: `⬇ От t.me/${ctx.message.forward_from.username} ⬇`,
+            ...noLinks
+        }).catch((error) => vkSendErrorHandler(ctx, error));
         return vk.api.messages.send({
             user_id: ctx.vkId,
             random_id: 0,
