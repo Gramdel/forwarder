@@ -56,7 +56,7 @@ const TgBot = (telegraf, vk) => {
                 await pgPool.query(insertQuery, [vkId, tgId, ConfirmationStatus.WAIT_VK]);
             }
         }
-        await ctx.reply("Для подтверждения, откройте бота в VK (https://vk.me/fwd2tg_bot) и отправьте ему команду:");
+        await ctx.reply("Для подтверждения, откройте бота в VK (https://vk.me/fwd2tg_bot) и отправьте ему команду:", noPreview);
         return ctx.replyWithMarkdownV2("`/set_tg_id " + tgId + "`");
     }
 
@@ -153,7 +153,7 @@ const TgBot = (telegraf, vk) => {
         const url = await ctx.telegram.getFileLink(document);
 
         /* Изменяем расширение для аудио */
-        if (ctx.message.audio && document.file_name.match(".+\.(mp3|m4a)$")) {
+        if (ctx.message.audio && document.file_name.match(/.+\.(mp3|m4a)$/)) {
             document.file_name += ".audio";
         }
 

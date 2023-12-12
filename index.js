@@ -9,7 +9,7 @@ const telegraf = new Telegraf(process.env.TG_TOKEN);
 const vk = new VK({ token: process.env.VK_TOKEN });
 
 const tgBot = TgBot(telegraf, vk);
-const vkBot = new VkBot(vk, telegraf.telegram);
+const vkBot = VkBot(vk, telegraf.telegram);
 
 module.exports.handler = async function (event, context) {
     for (const messageFromQueue of event.messages) {
