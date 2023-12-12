@@ -1,14 +1,14 @@
 const { pgPool, selectQuery, insertQuery, updateQuery, ConfirmationStatus } = require("./utils/db_utils");
 const { HearManager } = require("@vk-io/hear");
-const { PhotoAttachment, VideoAttachment, WallAttachment, DocumentAttachment } = require("vk-io");
 
 const noLinks = { dont_parse_links: true };
 const noPreview = { disable_web_page_preview: true };
+const MAX_UPLOAD_SIZE = 50_000_000;
 
 const VkBot = (vk, telegram) => {
     const setTgId = async (ctx) => {
         /* Проверяем, что команда вызвана с правильными аргументами */
-        const args = ctx.message.text.split(" ");
+        const args = ctx.text.split(" ");
         if (args.length !== 2 || isNaN(parseInt(args[1]))) {
             await ctx.send("У команды /set_tg_id должен быть один параметр - ваш id в TG (число, не username).");
             return ctx.send("Например: /set_tg_id 12345678");
@@ -60,6 +60,7 @@ const VkBot = (vk, telegram) => {
     }
 
     const checkPairing = async (ctx, next) => {
+        console.time("checkPairing");
         /* Достаем запись о пользователе по его vk_id */
         const vkId = ctx.peerId;
         const select = await pgPool.query(selectQuery, [vkId, 0]);
@@ -85,21 +86,34 @@ const VkBot = (vk, telegram) => {
             return ctx.send(`/set_vk_id ${vkId}`);
         }
 
+        /* Помечаем сообщение прочитанным */
+        await vk.api.messages.markAsRead({ peer_id: vkId });
+
         /* Вызываем следующий обработчик */
         ctx.tgId = tgId;
         ctx.vkId = vkId;
+        console.timeEnd("checkPairing");
         return next();
     }
 
-    const uploadPhoto = async (ctx, photo) => {
-        /* Пробуем переслать фото в TG */
-        await vk.api.messages.markAsRead({ peer_id: ctx.vkId });
-        return telegram.sendPhoto(ctx.tgId, photo.largeSizeUrl, { caption: ctx.text });
+    const uploadDocument = async (ctx, document, extra) => {
+        /* Проверяем, что документ не слишком большой */
+        if (document.size > MAX_UPLOAD_SIZE) {
+            await ctx.reply("К сожалению, этот файл слишком большой 😔");
+            return ctx.reply("Текущая версия Telegram Bot API запрещает ботам загружать файлы весом больше 50 Мб")
+        }
+
+        /* Пробуем переслать файл в TG */
+        return telegram.sendDocument(ctx.tgId, document.url, extra).catch((error) => tgSendErrorHandler(ctx, error));
     }
 
-    const uploadVideo = async (ctx, video) => {
+    const uploadPhoto = async (ctx, photo, extra) => {
+        /* Пробуем переслать фото в TG */
+        return telegram.sendPhoto(ctx.tgId, photo.largeSizeUrl, extra).catch((error) => tgSendErrorHandler(ctx, error));
+    }
+
+    const uploadVideo = async (ctx, video, extra) => {
         /* Пробуем переслать видео в TG */
-        await vk.api.messages.markAsRead({ peer_id: ctx.vkId });
         return ctx.send(JSON.stringify(video));
         /*
         const url = await vk.api.video.get({
@@ -112,98 +126,76 @@ const VkBot = (vk, telegram) => {
         await telegram.sendMessage(ctx.tgId, text, Extra.notifications(false));*/
     }
 
-    const unsupportedMessageHandler = (ctx) => {
-        return ctx.reply("Этот тип сообщения не поддерживается :(");
+    const uploadAudio = async (ctx, audio, extra) => {
+        /* Пробуем переслать аудио в TG */
+        return telegram.sendAudio(ctx.tgId, audio.url, { performer: audio.artist, title: audio.title })
+            .catch((error) => tgSendErrorHandler(ctx, error));
+    }
+
+    const uploadVoice = async (ctx, voice) => {
+        /* Пробуем переслать гс в TG */
+        return telegram.sendVoice(ctx.tgId, voice.oggUrl).catch((error) => tgSendErrorHandler(ctx, error));
+    }
+
+    const uploadSticker = async (ctx, sticker) => {
+        /* Не все стикеры можно скачать */
+        if (!sticker.images?.length) {
+            return unsupportedMessageHandler(ctx);
+        }
+
+        /* Пробуем переслать стикер в TG */
+        return telegram.sendPhoto(ctx.tgId, sticker.images.pop().url).catch((error) => tgSendErrorHandler(ctx, error));
+    }
+
+    const uploadGraffiti = async (ctx, graffiti) => {
+        /* Пробуем переслать граффити в TG */
+        return telegram.sendPhoto(ctx.tgId, graffiti.url).catch((error) => tgSendErrorHandler(ctx, error));
     }
 
     const forwardMessage = async (ctx) => {
+        console.time("forwardMessage");
         /* Если есть вложения, то разбираем и пересылаем их */
-        //console.log(ctx.attachments);
+        let extra = { caption: ctx.text };
         for (const attachment of (ctx.attachments ?? [])) {
             switch (attachment.type) {
+                case "doc":
+                    await uploadDocument(ctx, attachment, extra);
+                    extra = {};
+                    break;
                 case "photo":
-                    return uploadPhoto(ctx, attachment);
+                    await uploadPhoto(ctx, attachment, extra);
+                    extra = {};
+                    break;
                 case "video":
-                    //return uploadVideo(ctx, new VideoAttachment({ api: vk.api, payload: attachment.video }));
-                    return uploadVideo(ctx, attachment);
-                case "link":
-                    /*
-                    await telegram.sendMessage(
-                        ctx.tgId,
-                        `URL: ${attachment.link.url}\nTITLE: ${attachment.link.title}`,
-                        Extra.notifications(false),
-                    );*/
+                    await uploadVideo(ctx, attachment, extra); // TODO
+                    extra = {};
+                    break;
+                case "audio":
+                    await uploadAudio(ctx, attachment, extra);
+                    extra = {};
+                    break;
+                case "audio_message":
+                    await uploadVoice(ctx, attachment);
+                    extra = {};
                     break;
                 case "sticker":
-                    /*
-                    const stickerUrl = attachment.sticker.photo_256 || attachment.sticker.images[2];
-                    if (!stickerUrl) {
-                        await telegram.sendMessage(
-                            ctx.tgId,
-                            'Error. Something wrong with this sticker...',
-                            Extra.notifications(false),
-                        );
-                        break;
-                    }
-
-                    const converter = sharp()
-                        .webp()
-                        .toFormat('webp');
-
-                    const converterStream = request(stickerUrl)
-                        .on('error', e => console.error(e))
-                        .pipe(converter);
-
-                    await telegram.sendDocument(
-                        ctx.tgId,
-                        {
-                            source: converterStream,
-                            filename: 'sticker.webp',
-                        },
-                        Extra.notifications(false),
-                    );*/
+                    await uploadSticker(ctx, attachment);
                     break;
-                case "doc":
-                    /*
-                    const doc = new DocumentAttachment(attachment.doc, vk);
-                    if (doc.isVoice()) {
-                        await telegram.sendVoice(
-                            ctx.tgId,
-                            doc.getPreview().audio_msg.link_ogg,
-                            Extra.notifications(false),
-                        );
-                    } else {
-                        await telegram.sendDocument(
-                            ctx.tgId,
-                            doc.getUrl(),
-                            Extra.notifications(false),
-                        )
-                            .catch((err) => {
-                                console.error(err);
-                                return telegram.sendMessage(
-                                    ctx.tgId,
-                                    "Error. Can't upload document",
-                                    Extra.notifications(false),
-                                );
-                            });
-                    }*/
+                case "graffiti":
+                    await uploadGraffiti(ctx, attachment);
+                    break;
+                case "link":
                     break;
                 default:
-                    return unsupportedMessageHandler(ctx);
+                    await unsupportedMessageHandler(ctx);
             }
         }
 
-        /* Если вложений нет, но есть текст, пробуем его переслать в TG */
-        if (ctx.text) {
-            await vk.api.messages.markAsRead({ peer_id: ctx.vkId }); // иначе сообщение отображается как непрочитанное
-            return telegram.sendMessage(ctx.tgId, ctx.text)
-                /*.catch(async (error) => {
-                const chat = await telegram.getChat(ctx.tgId);
-                await ctx.send(`Бот попытался переслать сообщение в чат с пользователем https://t.me/${chat.username}, но не смог :(`);
-                return ctx.send("Возможно, id указан неверно или у вас нет переписки с нашим ботом в TG (https://t.me/fwd2vk_bot)");
-            })*/;
+        /* Если есть текст и он не был вставлен как подпись, пробуем его переслать в TG */
+        if (extra.caption && ctx.text) {
+            return telegram.sendMessage(ctx.tgId, ctx.text).catch((error) => tgSendErrorHandler(ctx, error));
         }
-
+        console.timeEnd("forwardMessage");
     }
 
     const flattenAndForwardMessage = async (ctx) => {
@@ -212,13 +204,26 @@ const VkBot = (vk, telegram) => {
         for (const fwdCtx of ctx.forwards) {
             fwdCtx.vkId = ctx.vkId;
             fwdCtx.tgId = ctx.tgId;
-            console.log(fwdCtx.senderId);
-            //const [user] = await vk.api.users.get({ user_ids: [fwdCtx.senderId] });
             const from = `⬇ От vk.com/${fwdCtx.senderId > 0 ? "id" + fwdCtx.senderId : "club" + -fwdCtx.senderId} ⬇`
-            await telegram.sendMessage(fwdCtx.tgId, from, noPreview);
+            await telegram.sendMessage(fwdCtx.tgId, from, noPreview).catch((error) => tgSendErrorHandler(ctx, error));
             await flattenAndForwardMessage(fwdCtx);
         }
     };
+
+    const tgSendErrorHandler = async (ctx, error) => {
+        console.log(error);
+        const chat = await telegram.getChat(ctx.tgId);
+        if (chat) {
+            await ctx.send(`Бот попытался переслать сообщение в чат с пользователем https://t.me/${chat.username}, но не смог 😔`);
+        } else {
+            await ctx.send(`Бот попытался переслать сообщение пользователю с TG id ${ctx.tgId}, но не смог найти с ним чат 😔`);
+        }
+        return ctx.send("Возможно, id указан неверно или у вас нет переписки с нашим ботом в TG (https://t.me/fwd2vk_bot)");
+    }
+
+    const unsupportedMessageHandler = (ctx) => {
+        return ctx.send("❌ Этот тип сообщения не поддерживается");
+    }
 
     const hearManager = new HearManager();
     hearManager.hear(/\/set_tg_id.*/, setTgId);

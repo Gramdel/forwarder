@@ -8,6 +8,8 @@ const pgPool = new Pool({
     database: process.env.PG_DBNAME,
 });
 
+pgPool.on("error", (error) => console.log(error));
+
 const selectQuery = "SELECT * FROM users WHERE vk_id = $1 OR tg_id = $2";
 const insertQuery = "INSERT INTO users (vk_id, tg_id, status) VALUES ($1, $2, $3)";
 const updateQuery = "UPDATE users SET vk_id = $1, tg_id = $2, status = $3 WHERE id = $4";

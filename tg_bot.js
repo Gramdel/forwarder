@@ -147,7 +147,7 @@ const TgBot = (telegraf, vk) => {
         /* Проверяем, что документ не слишком большой и получаем на него ссылку */
         const document = ctx.message.document ?? ctx.message.video ?? ctx.message.video_note ?? ctx.message.audio ?? ctx.message.animation;
         if (document.file_size > MAX_DOWNLOAD_SIZE) {
-            await ctx.reply("К сожалению, этот файл слишком большой :(");
+            await ctx.reply("К сожалению, этот файл слишком большой 😔");
             return ctx.reply("Текущая версия Telegram Bot API запрещает ботам скачивать файлы весом больше 20 Мб")
         }
         const url = await ctx.telegram.getFileLink(document);
@@ -177,14 +177,17 @@ const TgBot = (telegraf, vk) => {
             random_id: 0,
             message: ctx.message.text,
             attachment
-        }).catch(async (error) => {
-            await ctx.reply(`Бот попытался переслать сообщение в чат с пользователем https://vk.com/id${ctx.vkId}, но не смог :(`);
-            return ctx.reply("Возможно, id указан неверно или у вас нет переписки с нашим ботом в VK (https://vk.me/fwd2tg_bot)");
-        });
+        }).catch((error) => vkSendErrorHandler(ctx, error));
+    }
+
+    const vkSendErrorHandler = async (ctx, error) => {
+        console.log(error);
+        await ctx.reply(`Бот попытался переслать сообщение в чат с пользователем https://vk.com/id${ctx.vkId}, но не смог 😔`);
+        return ctx.reply("Возможно, id указан неверно или у вас нет переписки с нашим ботом в VK (https://vk.me/fwd2tg_bot)");
     }
 
     const unsupportedMessageHandler = (ctx) => {
-        return ctx.reply("Этот тип сообщения не поддерживается :(");
+        return ctx.reply("❌ Этот тип сообщения не поддерживается");
     }
 
     telegraf.command("set_vk_id", setVkId);
