@@ -8,7 +8,7 @@ const { pgPool } = require("./utils/db_utils");
 const telegraf = new Telegraf(process.env.TG_TOKEN);
 const vk = new VK({ token: process.env.VK_TOKEN });
 
-const tgBot = new TgBot(telegraf, vk);
+const tgBot = TgBot(telegraf, vk);
 const vkBot = new VkBot(vk, telegraf.telegram);
 
 module.exports.handler = async function (event, context) {
