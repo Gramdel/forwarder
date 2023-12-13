@@ -6,9 +6,9 @@ const pgPool = new Pool({
     host: `c-${process.env.PG_CLUSTER}.rw.mdb.yandexcloud.net`,
     port: 6432,
     database: process.env.PG_DBNAME,
+    connectionTimeoutMillis: 2000,
+    idleTimeoutMillis: 100,
 });
-
-pgPool.on("error", (error) => console.log(error));
 
 const selectQuery = "SELECT * FROM users WHERE vk_id = $1 OR tg_id = $2";
 const insertQuery = "INSERT INTO users (vk_id, tg_id, status) VALUES ($1, $2, $3)";

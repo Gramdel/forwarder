@@ -5,7 +5,7 @@ const noLinks = { dont_parse_links: true };
 const noPreview = { disable_web_page_preview: true };
 const MAX_UPLOAD_SIZE = 50_000_000;
 
-const VkBot = (vk, telegram) => {
+const VkBot = (telegram, vk, vkUser) => {
     const setTgId = async (ctx) => {
         /* Проверяем, что команда вызвана с правильными аргументами */
         const args = ctx.text.split(" ");
@@ -13,94 +13,100 @@ const VkBot = (vk, telegram) => {
             await ctx.send("У команды /set_tg_id должен быть один параметр - ваш id в TG (число, не username).");
             return ctx.send("Например: /set_tg_id 12345678");
         }
-
-        /* Достаем запись о пользователе по его vk_id */
         const vkId = ctx.peerId.toString();
         const tgId = args[1];
-        const select = await pgPool.query(selectQuery, [vkId, tgId]);
-        const row = select.rows[0];
-        const status = row?.status;
-        const id = row?.id;
 
-        /* Если в базе уже есть пользователь с таким id в TG, сообщаем об этом */
-        const vkIdMatches = row?.vk_id.toString() === vkId;
-        const tgIdMatches = row?.tg_id.toString() === tgId;
-        if ((select.rowCount > 1) || (!vkIdMatches && tgIdMatches)) {
-            await ctx.send("Упс... Этот TG id связан с id другого пользователя VK!");
-            await ctx.send("Если вы уверены, что TG id - верный, возможно, вы ошиблись, когда указывали VK id боту в TG");
-            await ctx.send("Попробуйте отправить боту в TG (https://t.me/fwd2vk_bot) команду:", noLinks);
-            return ctx.send(`/set_vk_id ${vkId}`);
-        }
+        try {
+            /* Достаем запись о пользователе по его vk_id */
+            const select = await pgPool.query(selectQuery, [vkId, tgId]);
+            const row = select.rows[0];
+            const status = row?.status;
+            const id = row?.id;
 
-        /* Если запись в базе подтверждена и изменений нет, то ничего не делаем */
-        if (status === ConfirmationStatus.CONFIRMED && tgIdMatches) {
-            return ctx.send("Ваш аккаунт уже связан с этим TG id. Можно пересылать сообщения!");
-        }
-
-        /* Если ожидалось подтверждение от бота в VK и изменения нет, то подтверждаем запись */
-        if (status === ConfirmationStatus.WAIT_VK && tgIdMatches) {
-            const chat = await telegram.getChat(tgId);
-            await pgPool.query(updateQuery, [vkId, tgId, ConfirmationStatus.CONFIRMED, id]);
-            await ctx.send("Ваш id в TG установлен!");
-            await ctx.send(`Бот будет пересылать сообщения сюда: https://t.me/${chat.username}`);
-            await telegram.sendMessage(tgId, "Ваш id в VK установлен!")
-            return telegram.sendMessage(tgId, `Бот будет пересылать сообщения сюда: https://vk.com/id${vkId}`);
-        }
-
-        /* Запрашиваем подтверждение от бота в TG (кроме случая, когда оно уже было запрошено с таким же id) */
-        if (!(status === ConfirmationStatus.WAIT_TG && tgIdMatches)) {
-            if (row) {
-                await pgPool.query(updateQuery, [vkId, tgId, ConfirmationStatus.WAIT_TG, id]);
-            } else {
-                await pgPool.query(insertQuery, [vkId, tgId, ConfirmationStatus.WAIT_TG]);
+            /* Если в базе уже есть пользователь с таким id в TG, сообщаем об этом */
+            const vkIdMatches = row?.vk_id.toString() === vkId;
+            const tgIdMatches = row?.tg_id.toString() === tgId;
+            if ((select.rowCount > 1) || (!vkIdMatches && tgIdMatches)) {
+                await ctx.send("Упс... Этот TG id связан с id другого пользователя VK!");
+                await ctx.send("Если вы уверены, что TG id - верный, возможно, вы ошиблись, когда указывали VK id боту в TG");
+                await ctx.send("Попробуйте отправить боту в TG (https://t.me/fwd2vk_bot) команду:", noLinks);
+                return ctx.send(`/set_vk_id ${vkId}`);
             }
+
+            /* Если запись в базе подтверждена и изменений нет, то ничего не делаем */
+            if (status === ConfirmationStatus.CONFIRMED && tgIdMatches) {
+                return ctx.send("Ваш аккаунт уже связан с этим TG id. Можно пересылать сообщения!");
+            }
+
+            /* Если ожидалось подтверждение от бота в VK и изменения нет, то подтверждаем запись */
+            if (status === ConfirmationStatus.WAIT_VK && tgIdMatches) {
+                const chat = await telegram.getChat(tgId);
+                await pgPool.query(updateQuery, [vkId, tgId, ConfirmationStatus.CONFIRMED, id]);
+                await ctx.send("Ваш id в TG установлен!");
+                await ctx.send(`Бот будет пересылать сообщения сюда: https://t.me/${chat.username}`);
+                await telegram.sendMessage(tgId, "Ваш id в VK установлен!")
+                return telegram.sendMessage(tgId, `Бот будет пересылать сообщения сюда: https://vk.com/id${vkId}`);
+            }
+
+            /* Запрашиваем подтверждение от бота в TG (кроме случая, когда оно уже было запрошено с таким же id) */
+            if (!(status === ConfirmationStatus.WAIT_TG && tgIdMatches)) {
+                if (row) {
+                    await pgPool.query(updateQuery, [vkId, tgId, ConfirmationStatus.WAIT_TG, id]);
+                } else {
+                    await pgPool.query(insertQuery, [vkId, tgId, ConfirmationStatus.WAIT_TG]);
+                }
+            }
+            await ctx.send("Для подтверждения, откройте бота в TG (https://t.me/fwd2vk_bot) и отправьте ему команду:", noLinks);
+            return ctx.send(`/set_vk_id ${vkId}`);
+        } catch (error) {
+            return dbErrorHandler(ctx, error);
         }
-        await ctx.send("Для подтверждения, откройте бота в TG (https://t.me/fwd2vk_bot) и отправьте ему команду:", noLinks);
-        return ctx.send(`/set_vk_id ${vkId}`);
     }
 
     const checkPairing = async (ctx, next) => {
-        console.time("checkPairing");
-        /* Достаем запись о пользователе по его vk_id */
-        const vkId = ctx.peerId;
-        const select = await pgPool.query(selectQuery, [vkId, 0]);
-        const row = select.rows[0];
-        const tgId = row?.tg_id;
+        try {
+            /* Достаем запись о пользователе по его vk_id */
+            const vkId = ctx.peerId;
+            const select = await pgPool.query(selectQuery, [vkId, 0]);
+            const row = select.rows[0];
+            const tgId = row?.tg_id;
 
-        /* Если пользователь ранее не указал свой tg_id, то записи о нём в БД нет */
-        if (!row) {
-            await ctx.send("Бот не знает, куда переслать сообщение - укажите ему свой id в TG");
-            return ctx.send("Например: /set_tg_id 12345678");
+            /* Если пользователь ранее не указал свой tg_id, то записи о нём в БД нет */
+            if (!row) {
+                await ctx.send("Бот не знает, куда переслать сообщение - укажите ему свой id в TG");
+                return ctx.send("Например: /set_tg_id 12345678");
+            }
+
+            /* Если ожидается подтверждение от бота в VK */
+            if (row.status === ConfirmationStatus.WAIT_VK) {
+                await ctx.send("Ваш id в TG пока не подтвержден");
+                return ctx.send("Для подтверждения, выполните команду, которую вам отправил бот в TG (https://t.me/fwd2vk_bot)", noLinks);
+            }
+
+            /* Если ожидается подтверждение от бота в TG */
+            if (row.status === ConfirmationStatus.WAIT_TG) {
+                ctx.send("Ваш id в TG пока не подтвержден");
+                await ctx.send("Для подтверждения, откройте бота в TG (https://t.me/fwd2vk_bot) и отправьте ему команду:", noLinks);
+                return ctx.send(`/set_vk_id ${vkId}`);
+            }
+
+            /* Помечаем сообщение прочитанным */
+            await vk.api.messages.markAsRead({ peer_id: vkId });
+
+            /* Вызываем следующий обработчик */
+            ctx.tgId = tgId;
+            ctx.vkId = vkId;
+            return next();
+        } catch (error) {
+            return dbErrorHandler(ctx, error);
         }
-
-        /* Если ожидается подтверждение от бота в VK */
-        if (row.status === ConfirmationStatus.WAIT_VK) {
-            await ctx.send("Ваш id в TG пока не подтвержден");
-            return ctx.send("Для подтверждения, выполните команду, которую вам отправил бот в TG (https://t.me/fwd2vk_bot)", noLinks);
-        }
-
-        /* Если ожидается подтверждение от бота в TG */
-        if (row.status === ConfirmationStatus.WAIT_TG) {
-            ctx.send("Ваш id в TG пока не подтвержден");
-            await ctx.send("Для подтверждения, откройте бота в TG (https://t.me/fwd2vk_bot) и отправьте ему команду:", noLinks);
-            return ctx.send(`/set_vk_id ${vkId}`);
-        }
-
-        /* Помечаем сообщение прочитанным */
-        await vk.api.messages.markAsRead({ peer_id: vkId });
-
-        /* Вызываем следующий обработчик */
-        ctx.tgId = tgId;
-        ctx.vkId = vkId;
-        console.timeEnd("checkPairing");
-        return next();
     }
 
     const uploadDocument = async (ctx, document, extra) => {
         /* Проверяем, что документ не слишком большой */
         if (document.size > MAX_UPLOAD_SIZE) {
-            await ctx.reply("К сожалению, этот файл слишком большой 😔");
-            return ctx.reply("Текущая версия Telegram Bot API запрещает ботам загружать файлы весом больше 50 Мб")
+            await ctx.send("К сожалению, этот файл слишком большой 😔");
+            return ctx.send("Текущая версия Telegram Bot API запрещает ботам загружать файлы весом больше 50 Мб")
         }
 
         /* Пробуем переслать файл в TG */
@@ -113,11 +119,37 @@ const VkBot = (vk, telegram) => {
     }
 
     const uploadVideo = async (ctx, video, extra) => {
-        console.log(video);
-        const response = await fetch(video.player);
+        /* Получаем подробную информацию о видео */
+        const { items } = await vkUser.api.video.get({
+            videos: `${video.ownerId}_${video.id}`,
+            extended: 0,
+        });
+        if (!items?.length) {
+            return ctx.send("Что-то пошло не так при получении информации о видео 😔");
+        }
+
+        /* Вытаскиваем из кода плеера ссылки на видео */
+        const urls = await fetch(items[0].player)
+            .then((response) => response.text())
+            .then((text) => {
+                return [...text.matchAll(/"url\d+":"(.+?)"/g)];
+            })
+        if (!urls?.length) {
+            return ctx.send("Что-то пошло не так при скачивании видео 😔");
+        }
+
+        /* Скачиваем видео в буффер (увы, иначе никак) */
+        const url = urls.pop()[1].replaceAll("\\", "");
+        const arrayBuffer = await fetch(url).then((response) => response.arrayBuffer());
+
+        /* Проверяем, что видео не слишком большое */
+        if (arrayBuffer.byteLength > MAX_UPLOAD_SIZE) {
+            await ctx.send("К сожалению, это видео слишком большое 😔");
+            return ctx.send("Текущая версия Telegram Bot API запрещает ботам загружать файлы весом больше 50 Мб")
+        }
 
         /* Пробуем переслать видео в TG */
-        return ctx.send(response.text());
+        return telegram.sendVideo(ctx.tgId, { source: Buffer.from(arrayBuffer) }, extra).catch((error) => tgSendErrorHandler(ctx, error));
     }
 
     const uploadAudio = async (ctx, audio, extra) => {
@@ -147,10 +179,13 @@ const VkBot = (vk, telegram) => {
     }
 
     const forwardMessage = async (ctx) => {
-        console.time("forwardMessage");
+        /* Подгружаем полную информацию о сообщении */
+        await ctx.loadMessagePayload({ force: true });
+
         /* Если есть вложения, то разбираем и пересылаем их */
         let extra = { caption: ctx.text };
         for (const attachment of (ctx.attachments ?? [])) {
+            await attachment.loadAttachmentPayload({ force: true }); // Подгружаем полную информацию о вложении
             switch (attachment.type) {
                 case "doc":
                     await uploadDocument(ctx, attachment, extra);
@@ -161,7 +196,7 @@ const VkBot = (vk, telegram) => {
                     extra = {};
                     break;
                 case "video":
-                    await uploadVideo(ctx, attachment, extra); // TODO
+                    await uploadVideo(ctx, attachment, extra);
                     extra = {};
                     break;
                 case "audio":
@@ -189,7 +224,6 @@ const VkBot = (vk, telegram) => {
         if (extra.caption && ctx.text) {
             return telegram.sendMessage(ctx.tgId, ctx.text).catch((error) => tgSendErrorHandler(ctx, error));
         }
-        console.timeEnd("forwardMessage");
     }
 
     const flattenAndForwardMessage = async (ctx) => {
@@ -203,6 +237,12 @@ const VkBot = (vk, telegram) => {
             await flattenAndForwardMessage(fwdCtx);
         }
     };
+
+    const dbErrorHandler = async (ctx, error) => {
+        console.log(error);
+        await ctx.send("Возникла проблема при подключении к базе данных 😬");
+        return ctx.send("Попробуйте позже!");
+    }
 
     const tgSendErrorHandler = async (ctx, error) => {
         console.log(error);

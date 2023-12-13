@@ -7,9 +7,10 @@ const { pgPool } = require("./utils/db_utils");
 
 const telegraf = new Telegraf(process.env.TG_TOKEN);
 const vk = new VK({ token: process.env.VK_TOKEN });
+const vkUser = new VK({ token: process.env.VK_USER_TOKEN });
 
-const tgBot = TgBot(telegraf, vk);
-const vkBot = VkBot(vk, telegraf.telegram);
+const tgBot = TgBot(telegraf, vk, vkUser);
+const vkBot = VkBot(telegraf.telegram, vk, vkUser);
 
 module.exports.handler = async function (event, context) {
     for (const messageFromQueue of event.messages) {
@@ -20,7 +21,6 @@ module.exports.handler = async function (event, context) {
             await vkBot.handleUpdate(update);
         }
     }
-    await pgPool.end;
 
     return { statusCode: 200, body: "" };
 };
