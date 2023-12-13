@@ -11,9 +11,10 @@ const pgPool = new Pool({
 });
 
 const selectQuery = "SELECT * FROM users WHERE vk_id = $1 OR tg_id = $2";
+const deleteQuery = "DELETE FROM users WHERE vk_id = $1 OR tg_id = $2";
 const insertQuery = "INSERT INTO users (vk_id, tg_id, status) VALUES ($1, $2, $3)";
 const updateQuery = "UPDATE users SET vk_id = $1, tg_id = $2, status = $3 WHERE id = $4";
 
 const ConfirmationStatus = Object.freeze({ CONFIRMED: "confirmed", WAIT_VK: "wait_vk", WAIT_TG: "wait_tg" });
 
-module.exports = { pgPool, selectQuery, insertQuery, updateQuery, ConfirmationStatus };
+module.exports = { pgPool, selectQuery, deleteQuery, insertQuery, updateQuery, ConfirmationStatus };

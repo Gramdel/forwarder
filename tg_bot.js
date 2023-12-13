@@ -1,22 +1,62 @@
-const { pgPool, selectQuery, insertQuery, updateQuery, ConfirmationStatus } = require("./utils/db_utils");
+const { pgPool, selectQuery, deleteQuery, insertQuery, updateQuery, ConfirmationStatus } = require("./utils/db_utils");
 
 const noLinks = { dont_parse_links: true };
 const noPreview = { disable_web_page_preview: true };
 const MAX_DOWNLOAD_SIZE = 20_000_000;
 
-const TgBot = (telegraf, vk, vkUser) => {
+const TgBot = (telegraf, vk) => {
+    const start = async (ctx) => {
+        /* Проверяем, что команда вызвана с правильными аргументами */
+        const args = ctx.message.text.split(" ");
+        if (args.length !== 1) {
+            return ctx.reply("❌ У команды /start не должно быть параметров");
+        }
+
+        await ctx.reply(
+            "Привет! 👋 Этот бот умеет пересылать видео, \"кружки\", аудио, гс, фото, " +
+            "стикеры (кроме анимированных), текст и файлы из Telegram в VK. " +
+            "Единственное ограничение - размер каждого пересылаемого файла (в т.ч. видео) не больше 20 Мб."
+        );
+        await ctx.reply(
+            "Для пересылки используется парный бот в VK (https://vk.me/fwd2tg_bot). " +
+            "Всё, что вы отправите боту в TG, бот в VK отправит вам в личные сообщения! 😉",
+            noPreview
+        );
+        await ctx.replyWithMarkdownV2(
+            "Чтобы начать работу, боту нужно узнать ваш id в VK\\. Укажите его: `/set_vk_id 12345678` " +
+            "\\(обязательно вводить именно так, числом\\)\\."
+        );
+        return ctx.reply("Если вы хотите посмотреть список команд, вызовите команду /help");
+    }
+
+    const help = async (ctx) => {
+        /* Проверяем, что команда вызвана с правильными аргументами */
+        const args = ctx.message.text.split(" ");
+        if (args.length !== 1) {
+            return ctx.reply("❌ У команды /help не должно быть параметров");
+        }
+
+        return ctx.reply(
+            "Список поддерживаемых команд:\n\n" +
+            "    /help - вывести данное сообщение (список команд)\n\n" +
+            "    /start - вывести приветственное сообщение\n\n" +
+            "    /set_vk_id id - установить id вашего аккаунта в VK; id должно быть числом\n\n" +
+            "    /delete_info - удалить из бота информацию о ваших TG и VK"
+        );
+    }
+
     const setVkId = async (ctx) => {
         /* Проверяем, что команда вызвана с правильными аргументами */
         const args = ctx.message.text.split(" ");
         if (args.length !== 2 || isNaN(parseInt(args[1]))) {
-            await ctx.reply("У команды /set_vk_id должен быть один параметр - ваш id в VK (просто число, без префикса id).");
+            await ctx.reply("❌ У команды /set_vk_id должен быть один параметр - ваш id в VK (просто число, без префикса id)");
             return ctx.replyWithMarkdownV2("Например: `/set_vk_id 12345678`");
         }
         const vkId = args[1];
         const tgId = ctx.message.from.id.toString();
 
         try {
-            /* Достаем запись о пользователе по его tg_id */
+            /* Достаем запись о пользователе */
             const select = await pgPool.query(selectQuery, [vkId, tgId]);
             const row = select.rows[0];
             const status = row?.status;
@@ -26,23 +66,23 @@ const TgBot = (telegraf, vk, vkUser) => {
             const vkIdMatches = row?.vk_id.toString() === vkId;
             const tgIdMatches = row?.tg_id.toString() === tgId;
             if ((select.rowCount > 1) || (!tgIdMatches && vkIdMatches)) {
-                await ctx.reply("Упс... Этот VK id связан с id другого пользователя TG!");
-                await ctx.reply("Если вы уверены, что VK id - верный, возможно, вы ошиблись, когда указывали TG id боту в VK");
+                await ctx.reply("Упс... ⛔ Этот VK id связан с id другого пользователя TG!");
+                await ctx.reply("Если вы уверены, что VK id - верный, возможно, вы ошиблись, когда указывали TG id боту в VK? 🤔");
                 await ctx.reply("Попробуйте отправить боту в VK (https://vk.me/fwd2tg_bot) команду:", noPreview);
                 return ctx.replyWithMarkdownV2("`/set_tg_id " + tgId + "`");
             }
 
             /* Если запись в базе подтверждена и изменений нет, то ничего не делаем */
             if (status === ConfirmationStatus.CONFIRMED && vkIdMatches) {
-                return ctx.reply("Ваш аккаунт уже связан с этим VK id. Можно пересылать сообщения!");
+                return ctx.reply("Ваш аккаунт уже связан с этим VK id. Можно пересылать сообщения! 😉");
             }
 
             /* Если ожидалось подтверждение от бота в TG и изменения нет, то подтверждаем запись */
             if (status === ConfirmationStatus.WAIT_TG && vkIdMatches) {
                 await pgPool.query(updateQuery, [vkId, tgId, ConfirmationStatus.CONFIRMED, id]);
-                await ctx.reply("Ваш id в VK установлен!");
+                await ctx.reply("Ваш id в VK установлен! ✅");
                 await ctx.reply(`Бот будет пересылать сообщения сюда: https://vk.com/id${vkId}`);
-                await vk.api.messages.send({ user_id: vkId, random_id: 0, message: "Ваш id в TG установлен!" });
+                await vk.api.messages.send({ user_id: vkId, random_id: 0, message: "Ваш id в TG установлен! ✅" });
                 return vk.api.messages.send({
                     user_id: vkId,
                     random_id: 0,
@@ -65,6 +105,23 @@ const TgBot = (telegraf, vk, vkUser) => {
         }
     }
 
+    const deleteInfo = async (ctx) => {
+        /* Проверяем, что команда вызвана с правильными аргументами */
+        const args = ctx.message.text.split(" ");
+        if (args.length !== 1) {
+            return ctx.reply("❌ У команды /delete_info не должно быть параметров");
+        }
+
+        try {
+            /* Удаляем запись о пользователе по его tg_id */
+            const tgId = ctx.message.from.id;
+            await pgPool.query(deleteQuery, [0, tgId]);
+            return ctx.reply("Данные успешно стерты! ✅");
+        } catch (error) {
+            return dbErrorHandler(ctx, error);
+        }
+    }
+
     const checkPairing = async (ctx, next) => {
         try {
             /* Достаем запись о пользователе по его tg_id */
@@ -75,20 +132,20 @@ const TgBot = (telegraf, vk, vkUser) => {
 
             /* Если пользователь ранее не указал свой vk_id, то записи о нём в БД нет */
             if (!row) {
-                await ctx.reply("Бот не знает, куда переслать сообщение - укажите ему свой id в VK");
+                await ctx.reply("❌ Бот не знает, куда переслать сообщение - укажите ему свой id в VK");
                 return ctx.replyWithMarkdownV2("Например: `/set_vk_id 12345678`");
             }
 
             /* Если ожидается подтверждение от бота в VK */
             if (row.status === ConfirmationStatus.WAIT_VK) {
-                ctx.reply("Ваш id в VK пока не подтвержден");
+                ctx.reply("❌ Ваш id в VK пока не подтвержден");
                 await ctx.reply("Для подтверждения, откройте бота в VK (https://vk.me/fwd2tg_bot) и отправьте ему команду:", noPreview);
                 return ctx.replyWithMarkdownV2("`/set_tg_id " + tgId + "`");
             }
 
             /* Если ожидается подтверждение от бота в TG */
             if (row.status === ConfirmationStatus.WAIT_TG) {
-                await ctx.reply("Ваш id в VK пока не подтвержден");
+                await ctx.reply("❌ Ваш id в VK пока не подтвержден");
                 return ctx.reply("Для подтверждения, выполните команду, которую вам отправил бот в VK (https://vk.me/fwd2tg_bot)", noPreview);
             }
 
@@ -218,7 +275,10 @@ const TgBot = (telegraf, vk, vkUser) => {
         return ctx.reply("❌ Этот тип сообщения не поддерживается");
     }
 
+    telegraf.command("start", start);
+    telegraf.command("help", help);
     telegraf.command("set_vk_id", setVkId);
+    telegraf.command("delete_info", deleteInfo);
     telegraf.use(checkPairing);
     telegraf.on("voice", uploadVoice);
     telegraf.on("photo", uploadPhoto);
